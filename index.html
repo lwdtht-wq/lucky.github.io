@@ -2,116 +2,151 @@
 <html lang="en">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Sketch — SVG line-draw animation</title>
+<title>Sketch — head/hand/face sway + fade-in</title>
 <style>
-  :root { --ink: #2b2f77; --hover: #3b82f6; }
+  :root{ --ink:#2b2f77; --ampSmall:2deg; --ampMid:3deg; --ampBig:4deg; }
   html,body{margin:0;background:#fff;font-family:system-ui,Segoe UI,Arial}
-  .wrap{max-width:960px;margin:28px auto;padding:0 16px}
+  .wrap{max-width:980px;margin:28px auto;padding:0 16px}
   h1{margin:0 0 10px;font-size:26px}
   .sub{color:#666;margin:0 0 12px}
-  #stage{border:1px solid #e5e7eb;border-radius:12px;padding:12px}
-  svg{display:block;width:100%;height:auto;background:#fff; /* 保持纯白背景 */}
-  /* 让笔触在缩放时保持宽度 */
+  #stage{border:1px solid #e5e7eb;border-radius:12px;padding:12px;overflow:hidden}
+
+  /* 纯白背景 + 缩放不变粗 */
+  svg{display:block;width:100%;height:auto;background:#fff}
   svg *{vector-effect:non-scaling-stroke}
-  /* 悬停到任何笔触：轻微加粗并变色 */
-  .hoverable:hover{stroke:var(--hover) !important; stroke-width:2.2 !important}
-  /* 入场线描动画 */
-  @keyframes draw {
-    from { stroke-dashoffset: var(--segLen, 0); }
-    to   { stroke-dashoffset: 0; }
+
+  /* 入场淡入上移 */
+  @keyframes fadeInUp{
+    from{opacity:0; transform: translateY(8px)}
+    to{opacity:1; transform: translateY(0)}
   }
-  /* 整体轻微漂浮 */
-  @keyframes float {
-    0%,100% { transform: translateY(0px); }
-    50%     { transform: translateY(-2px); }
+  .enter{ animation: fadeInUp .8s ease-out both }
+
+  /* 左右摆动（基于组自身包围盒） */
+  @keyframes sway {
+    0%  { transform: rotate(calc(-1 * var(--amp))); }
+    50% { transform: rotate(var(--amp)); }
+    100%{ transform: rotate(calc(-1 * var(--amp))); }
   }
-  .floating{ animation: float 4s ease-in-out infinite; transform-origin:center }
-  .toolbar{display:flex;gap:8px;margin-top:12px}
+  .sway{
+    transform-box: fill-box;      /* 以元素几何盒为参照 */
+    transform-origin: center;     /* 如需自定义，JS 会覆盖 */
+    animation: sway var(--dur, 3s) ease-in-out infinite;
+    will-change: transform;
+  }
+
+  /* 悬停该部位：幅度更大、速度更快、描边略加粗上色 */
+  .sway:hover{
+    --amp: 6deg; --dur: 1.2s;
+    stroke: #3b82f6 !important; stroke-width: 2.2 !important;
+    cursor: pointer;
+  }
+
+  /* 顶部工具 */
+  .tools{display:flex;gap:8px;margin-top:10px}
   button{
-    padding:8px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#111;color:#fff;
-    cursor:pointer;font-size:14px
+    padding:8px 12px;border:1px solid #e5e7eb;border-radius:8px;
+    background:#111;color:#fff;font-size:14px;cursor:pointer
   }
   button:hover{filter:brightness(1.05)}
 </style>
 <body>
   <div class="wrap">
-    <h1>Chart 9 (sketch) — animated</h1>
-    <p class="sub">Auto line-draw + float + hover highlight. No changes to your original SVG file.</p>
-    <div id="stage" class="floating"><!-- SVG will be injected here --></div>
-    <div class="toolbar">
-      <button id="replay">Replay</button>
+    <h1>Chart 9 (sketch) — interactive</h1>
+    <p class="sub">Fade-in entrance; head / hand / face sway (hover to amplify, click to pause/resume).</p>
+    <div id="stage" class="enter"><!-- SVG will be injected here --></div>
+    <div class="tools">
+      <button id="replay">Replay fade-in</button>
+      <button id="toggle">Pause/Play all</button>
     </div>
   </div>
 
 <script>
-const SVG_URL = '11.svg';          // ← 如果文件名不同，改这里
-const STROKE_COLOR = getComputedStyle(document.documentElement)
-                      .getPropertyValue('--ink').trim();
+const SVG_URL = '11.svg';       // ← 若文件名不同，改这里
 
-/**
- * 把外部 SVG 拉进来并添加动画
- */
-async function loadAndAnimate() {
-  const holder = document.getElementById('stage');
-  holder.innerHTML = 'Loading…';
-  const txt = await fetch(SVG_URL).then(r => r.text());
-  holder.innerHTML = txt;
+// 读取并注入 SVG
+(async function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = 'Loading…';
+  const svgText = await fetch(SVG_URL).then(r=>r.text());
+  stage.innerHTML = svgText;
 
-  const svg = holder.querySelector('svg');
-  if (!svg) return;
+  const svg = stage.querySelector('svg');
+  if(!svg) return;
 
-  // 统一一下外观：不覆盖你原有的 fill，只是保证线条看起来漂亮
-  svg.querySelectorAll('path,line,polyline,polygon,rect,circle,ellipse').forEach(el => {
-    // 仅对有描边的元素做动画；如果没设 stroke，就给个默认颜色
-    const computedStroke = el.getAttribute('stroke') || STROKE_COLOR;
-    el.setAttribute('stroke', computedStroke);
+  // 统一默认描边（不覆盖你已有的）
+  svg.querySelectorAll('path,line,polyline,polygon,rect,circle,ellipse').forEach(el=>{
+    if(!el.getAttribute('stroke')) el.setAttribute('stroke', getComputedStyle(document.documentElement).getPropertyValue('--ink').trim());
     el.setAttribute('stroke-linecap','round');
     el.setAttribute('stroke-linejoin','round');
-    el.classList.add('hoverable');
   });
 
-  // 计算每段线总长度并做“描边绘制”动画，逐条错峰
-  const drawables = Array.from(
-    svg.querySelectorAll('path,line,polyline,polygon,rect,circle,ellipse')
-  );
-
-  let t = 0;                        // 累计延迟
-  const STEP = 0.08;                // 每条相隔的错峰秒数
-  const DUR  = 1.6;                 // 每条绘制时长
-
-  drawables.forEach((el, i) => {
-    // 有些元素（例如 group）没有长度；过滤掉
-    if (typeof el.getTotalLength !== 'function') return;
-    const len = el.getTotalLength();
-
-    // 设置 dash 数值并应用动画
-    el.style.strokeDasharray  = len;
-    el.style.strokeDashoffset = len;
-    el.style.setProperty('--segLen', len);
-    el.style.animation = `draw ${DUR}s ease-out ${t.toFixed(2)}s forwards`;
-
-    t += STEP;
-  });
-
-  // 让整幅图“漂浮”起来（不会影响描边粗细）
-  svg.classList.add('floating');
-}
-
-// 重播：清除动画属性再重新加载
-document.getElementById('replay').addEventListener('click', async () => {
-  const stage = document.getElementById('stage');
-  const backup = stage.innerHTML;   // 保底
-  try {
-    // 直接重新加载能重新计算长度并刷新动画
-    await loadAndAnimate();
-  } catch (e) {
-    // 如果失败就回退
-    stage.innerHTML = backup;
+  // —— 根据你的“分组”定位部位 —— //
+  function pickOne(svg, candidates){
+    for(const sel of candidates){
+      const node = svg.querySelector(sel);
+      if(node) return node;
+    }
+    return null;
   }
-});
+  const head = pickOne(svg, ['#head','[data-role=head]','#Head','#group-head']);
+  let hand = pickOne(svg, ['#hand','#rightHand','#Hand','#handR','[data-role=hand]']);
+  let face = pickOne(svg, ['#face','[data-role=face]','#Face']);
 
-// 初次加载
-loadAndAnimate();
+  // 如果没有 face 组但存在眼口，自动打包一个组（不改你源文件，只是运行时包起来）
+  if(!face){
+    const eyes = svg.querySelector('#eyes,[data-role=eyes]');
+    const mouth= svg.querySelector('#mouth,[data-role=mouth]');
+    if(eyes || mouth){
+      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.id = 'face-auto';
+      // 插在第一个元素之前
+      const parent = (eyes||mouth).parentNode;
+      parent.insertBefore(g, (eyes||mouth));
+      if(eyes) g.appendChild(eyes);
+      if(mouth) g.appendChild(mouth);
+      face = g;
+    }
+  }
+
+  // 应用摆动：不同部位不同幅度/节奏与旋转中心
+  function applySway(node, ampDeg, durSec, origin){
+    if(!node) return;
+    node.classList.add('sway');
+    node.style.setProperty('--amp', ampDeg);
+    node.style.setProperty('--dur', durSec);
+    node.style.transformOrigin = origin;     // e.g. 'center', 'top center'
+    node.style.transformBox    = 'fill-box';
+  }
+  applySway(head, '3deg',  '3.2s', 'center');        // 头部：中等幅度、慢
+  applySway(face, '2.5deg','2.6s', 'center');        // 表情：稍小幅度
+  applySway(hand, '4deg',  '2.2s', 'top center');    // 手部：幅度大一点，从上缘“肘部”转
+
+  // 点击对应部位可暂停/继续自身动画（交互）
+  [head, face, hand].forEach(node=>{
+    if(!node) return;
+    node.addEventListener('click', () => {
+      const running = getComputedStyle(node).animationPlayState !== 'paused';
+      node.style.animationPlayState = running ? 'paused' : 'running';
+    });
+  });
+
+  // 顶部按钮：重播淡入 & 全局暂停/继续
+  document.getElementById('replay').onclick = () => {
+    stage.classList.remove('enter');
+    // 触发重排再加回类名以重播动画
+    void stage.offsetWidth;
+    stage.classList.add('enter');
+  };
+  let paused = false;
+  document.getElementById('toggle').onclick = () => {
+    paused = !paused;
+    svg.querySelectorAll('.sway').forEach(el=>{
+      el.style.animationPlayState = paused ? 'paused' : 'running';
+    });
+    document.getElementById('toggle').textContent = paused ? 'Play all' : 'Pause all';
+  };
+})();
 </script>
 </body>
 </html>
