@@ -1,16 +1,17 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Sketch — fade-in + hover highlight + click wobble</title>
+<title>Sketch — head/hand/face sway + fade-in</title>
 <style>
-  :root{ --ink:#2b2f77; }
+  :root{ --ink:#2b2f77; --ampSmall:2deg; --ampMid:3deg; --ampBig:4deg; }
   html,body{margin:0;background:#fff;font-family:system-ui,Segoe UI,Arial}
-  .wrap{max-width:960px;margin:28px auto;padding:0 16px}
-  h1{margin:0 0 10px;font-size:22px}
+  .wrap{max-width:980px;margin:28px auto;padding:0 16px}
+  h1{margin:0 0 10px;font-size:26px}
   .sub{color:#666;margin:0 0 12px}
   #stage{border:1px solid #e5e7eb;border-radius:12px;padding:12px;overflow:hidden}
 
+  /* 纯白背景 + 缩放不变粗 */
   svg{display:block;width:100%;height:auto;background:#fff}
   svg *{vector-effect:non-scaling-stroke}
 
@@ -21,76 +22,135 @@
   }
   .enter{ animation: fadeInUp .8s ease-out both }
 
-  /* 线条描边入场（可选：让线条逐条出现） */
-  .draw {
-    stroke-dasharray: var(--len, 0);
-    stroke-dashoffset: var(--len, 0);
-    transition: stroke-dashoffset 1.0s ease;
+  /* 左右摆动（基于组自身包围盒） */
+  @keyframes sway {
+    0%  { transform: rotate(calc(-1 * var(--amp))); }
+    50% { transform: rotate(var(--amp)); }
+    100%{ transform: rotate(calc(-1 * var(--amp))); }
   }
-  .ready { stroke-dashoffset: 0; }
-
-  /* 悬停高亮（交互1） */
-  .hl { stroke:#3b82f6 !important; stroke-width:2.4 !important; filter:drop-shadow(0 0 2px rgba(59,130,246,.35)); }
-
-  /* 点击整图“左右晃动”（交互2） */
-  @keyframes wobble {
-    0%   { transform: rotate(0deg) }
-    20%  { transform: rotate(-3deg) }
-    50%  { transform: rotate(3deg) }
-    80%  { transform: rotate(-2deg) }
-    100% { transform: rotate(0deg) }
+  .sway{
+    transform-box: fill-box;      /* 以元素几何盒为参照 */
+    transform-origin: center;     /* 如需自定义，JS 会覆盖 */
+    animation: sway var(--dur, 3s) ease-in-out infinite;
+    will-change: transform;
   }
-  .wobble-on { animation: wobble .6s ease-in-out 1; transform-origin:center }
+
+  /* 悬停该部位：幅度更大、速度更快、描边略加粗上色 */
+  .sway:hover{
+    --amp: 6deg; --dur: 1.2s;
+    stroke: #3b82f6 !important; stroke-width: 2.2 !important;
+    cursor: pointer;
+  }
+
+  /* 顶部工具 */
+  .tools{display:flex;gap:8px;margin-top:10px}
+  button{
+    padding:8px 12px;border:1px solid #e5e7eb;border-radius:8px;
+    background:#111;color:#fff;font-size:14px;cursor:pointer
+  }
+  button:hover{filter:brightness(1.05)}
 </style>
 <body>
   <div class="wrap">
-    <h1>Sketch — 交互演示</h1>
-    <p class="sub">包含：入场淡入 + 悬停高亮（任何线条）+ 点击整图左右晃动。</p>
-    <div id="stage" class="enter"><!-- SVG 注入到这里 --></div>
+    <h1>Chart 9 (sketch) — interactive</h1>
+    <p class="sub">Fade-in entrance; head / hand / face sway (hover to amplify, click to pause/resume).</p>
+    <div id="stage" class="enter"><!-- SVG will be injected here --></div>
+    <div class="tools">
+      <button id="replay">Replay fade-in</button>
+      <button id="toggle">Pause/Play all</button>
+    </div>
   </div>
 
 <script>
-const SVG_URL = '11.svg'; // ← 如文件名不同改这里
+const SVG_URL = '11.svg';       // ← 若文件名不同，改这里
 
-async function main(){
+// 读取并注入 SVG
+(async function init(){
   const stage = document.getElementById('stage');
-  stage.textContent = 'Loading…';
-  const txt = await fetch(SVG_URL).then(r=>r.text());
-  stage.innerHTML = txt;
+  stage.innerHTML = 'Loading…';
+  const svgText = await fetch(SVG_URL).then(r=>r.text());
+  stage.innerHTML = svgText;
 
   const svg = stage.querySelector('svg');
   if(!svg) return;
 
-  // 统一描边观感（不覆盖已有 stroke 的颜色）
-  svg.querySelectorAll('path,line,polyline,polygon,rect,circle,ellipse').forEach((el,i)=>{
+  // 统一默认描边（不覆盖你已有的）
+  svg.querySelectorAll('path,line,polyline,polygon,rect,circle,ellipse').forEach(el=>{
     if(!el.getAttribute('stroke')) el.setAttribute('stroke', getComputedStyle(document.documentElement).getPropertyValue('--ink').trim());
     el.setAttribute('stroke-linecap','round');
     el.setAttribute('stroke-linejoin','round');
-
-    // 线条描边入场：计算长度，做轻微错峰
-    let len = 0; try{ len = el.getTotalLength ? el.getTotalLength() : 0 }catch(e){ len = 0 }
-    el.style.setProperty('--len', len);
-    el.classList.add('draw');
-    el.style.transitionDelay = (Math.min(i, 12) * 0.05)+'s'; // 最多延迟到 ~0.6s
-    // 悬停高亮（交互1）
-    el.addEventListener('pointerenter', ()=> el.classList.add('hl'));
-    el.addEventListener('pointerleave', ()=> el.classList.remove('hl'));
   });
 
-  // 触发描边入场
-  requestAnimationFrame(()=>{
-    svg.querySelectorAll('.draw').forEach(el=> el.classList.add('ready'));
+  // —— 根据你的“分组”定位部位 —— //
+  function pickOne(svg, candidates){
+    for(const sel of candidates){
+      const node = svg.querySelector(sel);
+      if(node) return node;
+    }
+    return null;
+  }
+  const head = pickOne(svg, ['#head','[data-role=head]','#Head','#group-head']);
+  let hand = pickOne(svg, ['#hand','#rightHand','#Hand','#handR','[data-role=hand]']);
+  let face = pickOne(svg, ['#face','[data-role=face]','#Face']);
+
+  // 如果没有 face 组但存在眼口，自动打包一个组（不改你源文件，只是运行时包起来）
+  if(!face){
+    const eyes = svg.querySelector('#eyes,[data-role=eyes]');
+    const mouth= svg.querySelector('#mouth,[data-role=mouth]');
+    if(eyes || mouth){
+      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.id = 'face-auto';
+      // 插在第一个元素之前
+      const parent = (eyes||mouth).parentNode;
+      parent.insertBefore(g, (eyes||mouth));
+      if(eyes) g.appendChild(eyes);
+      if(mouth) g.appendChild(mouth);
+      face = g;
+    }
+  }
+
+  // 应用摆动：不同部位不同幅度/节奏与旋转中心
+  function applySway(node, ampDeg, durSec, origin){
+    if(!node) return;
+    node.classList.add('sway');
+    node.style.setProperty('--amp', ampDeg);
+    node.style.setProperty('--dur', durSec);
+    node.style.transformOrigin = origin;     // e.g. 'center', 'top center'
+    node.style.transformBox    = 'fill-box';
+  }
+  applySway(head, '3deg',  '3.2s', 'center');        // 头部：中等幅度、慢
+  applySway(face, '2.5deg','2.6s', 'center');        // 表情：稍小幅度
+  applySway(hand, '4deg',  '2.2s', 'top center');    // 手部：幅度大一点，从上缘“肘部”转
+
+  // 点击对应部位可暂停/继续自身动画（交互）
+  [head, face, hand].forEach(node=>{
+    if(!node) return;
+    node.addEventListener('click', () => {
+      const running = getComputedStyle(node).animationPlayState !== 'paused';
+      node.style.animationPlayState = running ? 'paused' : 'running';
+    });
   });
 
-  // 点击整幅图触发 wobble（交互2）
-  svg.style.cursor = 'pointer';
-  svg.addEventListener('click', ()=>{
-    svg.classList.remove('wobble-on');
-    // 重新触发动画
-    void svg.offsetWidth;
-    svg.classList.add('wobble-on');
-  });
-}
+  // 顶部按钮：重播淡入 & 全局暂停/继续
+  document.getElementById('replay').onclick = () => {
+    stage.classList.remove('enter');
+    // 触发重排再加回类名以重播动画
+    void stage.offsetWidth;
+    stage.classList.add('enter');
+  };
+  let paused = false;
+  document.getElementById('toggle').onclick = () => {
+    paused = !paused;
+    svg.querySelectorAll('.sway').forEach(el=>{
+      el.style.animationPlayState = paused ? 'paused' : 'running';
+    });
+    document.getElementById('toggle').textContent = paused ? 'Play all' : 'Pause all';
+  };
+})();
+</script>
+</body>
+</html>
+
 
 main();
 </script>
