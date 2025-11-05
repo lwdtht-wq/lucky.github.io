@@ -30,16 +30,22 @@
   }
   .sway{
     transform-box: fill-box;      /* 以元素几何盒为参照 */
-    transform-origin: center;     /* 如需自定义，JS 会覆盖 */
+    transform-origin: center;     /* JS 可覆盖 */
     animation: sway var(--dur, 3s) ease-in-out infinite;
     will-change: transform;
   }
-
-  /* 悬停该部位：幅度更大、速度更快、描边略加粗上色 */
   .sway:hover{
     --amp: 6deg; --dur: 1.2s;
     stroke: #3b82f6 !important; stroke-width: 2.2 !important;
     cursor: pointer;
+  }
+
+  /* “手部左右晃动两下”的一次性动画类（交互核心） */
+  .hand-wave {
+    --amp: 6deg;                     /* 手部摆动的幅度 */
+    transform-box: fill-box;
+    transform-origin: top center;    /* 以“手腕”上缘为旋转大致参考 */
+    animation: sway .7s ease-in-out 2; /* 使用同一套 sway 关键帧，执行 2 次 */
   }
 
   /* 顶部工具 */
@@ -53,21 +59,21 @@
 <body>
   <div class="wrap">
     <h1>Chart 9 (sketch) — interactive</h1>
-    <p class="sub">Fade-in entrance; head / hand / face sway (hover to amplify, click to pause/resume).</p>
+    <p class="sub">Fade-in entrance; head / hand / face sway. New: click the hand or the button to wave ×2.</p>
     <div id="stage" class="enter"><!-- SVG will be injected here --></div>
     <div class="tools">
       <button id="replay">Replay fade-in</button>
-      <button id="toggle">Pause/Play all</button>
+      <button id="toggle">Pause/Play head & face</button>
+      <button id="wave">Wave hand ×2</button>
     </div>
   </div>
 
 <script>
 const SVG_URL = '11.svg';       // ← 若文件名不同，改这里
 
-// 读取并注入 SVG
 (async function init(){
   const stage = document.getElementById('stage');
-  stage.innerHTML = 'Loading…';
+  stage.textContent = 'Loading…';
   const svgText = await fetch(SVG_URL).then(r=>r.text());
   stage.innerHTML = svgText;
 
@@ -82,70 +88,59 @@ const SVG_URL = '11.svg';       // ← 若文件名不同，改这里
   });
 
   // —— 根据你的“分组”定位部位 —— //
-  function pickOne(svg, candidates){
+  function pickOne(root, candidates){
     for(const sel of candidates){
-      const node = svg.querySelector(sel);
+      const node = root.querySelector(sel);
       if(node) return node;
     }
     return null;
   }
   const head = pickOne(svg, ['#head','[data-role=head]','#Head','#group-head']);
-  let hand = pickOne(svg, ['#hand','#rightHand','#Hand','#handR','[data-role=hand]']);
-  let face = pickOne(svg, ['#face','[data-role=face]','#Face']);
+  const face = pickOne(svg, ['#face','[data-role=face]','#Face']);
+  const hand = pickOne(svg, ['#hand','#rightHand','#Hand','#handR','[data-role=hand]']);
 
-  // 如果没有 face 组但存在眼口，自动打包一个组（不改你源文件，只是运行时包起来）
-  if(!face){
-    const eyes = svg.querySelector('#eyes,[data-role=eyes]');
-    const mouth= svg.querySelector('#mouth,[data-role=mouth]');
-    if(eyes || mouth){
-      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
-      g.id = 'face-auto';
-      // 插在第一个元素之前
-      const parent = (eyes||mouth).parentNode;
-      parent.insertBefore(g, (eyes||mouth));
-      if(eyes) g.appendChild(eyes);
-      if(mouth) g.appendChild(mouth);
-      face = g;
-    }
-  }
-
-  // 应用摆动：不同部位不同幅度/节奏与旋转中心
+  // 头部 / 表情：保持轻微的无限摆动
   function applySway(node, ampDeg, durSec, origin){
     if(!node) return;
     node.classList.add('sway');
     node.style.setProperty('--amp', ampDeg);
     node.style.setProperty('--dur', durSec);
-    node.style.transformOrigin = origin;     // e.g. 'center', 'top center'
-    node.style.transformBox    = 'fill-box';
+    node.style.transformOrigin = origin;
+    node.style.transformBox = 'fill-box';
   }
-  applySway(head, '3deg',  '3.2s', 'center');        // 头部：中等幅度、慢
-  applySway(face, '2.5deg','2.6s', 'center');        // 表情：稍小幅度
-  applySway(hand, '4deg',  '2.2s', 'top center');    // 手部：幅度大一点，从上缘“肘部”转
+  applySway(head, '3deg',  '3.2s', 'center');
+  applySway(face, '2.5deg','2.6s', 'center');
 
-  // 点击对应部位可暂停/继续自身动画（交互）
-  [head, face, hand].forEach(node=>{
-    if(!node) return;
-    node.addEventListener('click', () => {
-      const running = getComputedStyle(node).animationPlayState !== 'paused';
-      node.style.animationPlayState = running ? 'paused' : 'running';
-    });
-  });
-
-  // 顶部按钮：重播淡入 & 全局暂停/继续
+  // 手部：不做无限摆动；改为“点击/按钮触发左右晃动两下”
+  function triggerHandWave(){
+    if(!hand) return;
+    // 先清除旧的类以便可重复触发
+    hand.classList.remove('hand-wave');
+    // 强制回流，重置动画状态
+    void hand.offsetWidth;
+    // 设置旋转中心，并触发两次摆动
+    hand.style.transformOrigin = 'top center';
+    hand.style.transformBox = 'fill-box';
+    hand.classList.add('hand-wave');
+  }
+  if(hand){
+    hand.style.cursor = 'pointer';
+    hand.addEventListener('click', triggerHandWave);
+  }
+  // 工具按钮：重播淡入 / 暂停-继续（仅对 head & face）/ 手部摆两下
   document.getElementById('replay').onclick = () => {
-    stage.classList.remove('enter');
-    // 触发重排再加回类名以重播动画
-    void stage.offsetWidth;
-    stage.classList.add('enter');
+    stage.classList.remove('enter'); void stage.offsetWidth; stage.classList.add('enter');
   };
   let paused = false;
   document.getElementById('toggle').onclick = () => {
     paused = !paused;
-    svg.querySelectorAll('.sway').forEach(el=>{
-      el.style.animationPlayState = paused ? 'paused' : 'running';
+    [head, face].forEach(node=>{
+      if(!node) return;
+      node.style.animationPlayState = paused ? 'paused' : 'running';
     });
-    document.getElementById('toggle').textContent = paused ? 'Play all' : 'Pause all';
+    document.getElementById('toggle').textContent = paused ? 'Play head & face' : 'Pause head & face';
   };
+  document.getElementById('wave').onclick = triggerHandWave;
 })();
 </script>
 </body>
