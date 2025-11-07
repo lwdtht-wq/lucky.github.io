@@ -4,63 +4,37 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Sketch — head/hand/face sway + fade-in</title>
 <style>
-  :root{ --ink:#2b2f77; --ampSmall:2deg; --ampMid:3deg; --ampBig:4deg; }
+  :root{ --ink:#2b2f77; }
   html,body{margin:0;background:#fff;font-family:system-ui,Segoe UI,Arial}
   .wrap{max-width:980px;margin:28px auto;padding:0 16px}
   h1{margin:0 0 10px;font-size:26px}
   .sub{color:#666;margin:0 0 12px}
-  #stage{border:1px solid #e5e7eb;border-radius:12px;padding:12px;overflow:hidden}
+  #stage{border:1px solid #e5e7eb;border-radius:12px;padding:12px;overflow:hidden;min-height:120px}
 
-  /* 纯白背景 + 缩放不变粗 */
   svg{display:block;width:100%;height:auto;background:#fff}
-  svg *{vector-effect:non-scaling-stroke}
+  svg *{vector-effect:non-scaling-stroke; pointer-events:auto}
 
   /* 入场淡入上移 */
-  @keyframes fadeInUp{
-    from{opacity:0; transform: translateY(8px)}
-    to{opacity:1; transform: translateY(0)}
-  }
+  @keyframes fadeInUp{from{opacity:0; transform: translateY(8px)} to{opacity:1; transform: translateY(0)}}
   .enter{ animation: fadeInUp .8s ease-out both }
 
-  /* 左右摆动（基于组自身包围盒） */
-  @keyframes sway {
-    0%  { transform: rotate(calc(-1 * var(--amp))); }
-    50% { transform: rotate(var(--amp)); }
-    100%{ transform: rotate(calc(-1 * var(--amp))); }
-  }
-  .sway{
-    transform-box: fill-box;      /* 以元素几何盒为参照 */
-    transform-origin: center;     /* JS 可覆盖 */
-    animation: sway var(--dur, 3s) ease-in-out infinite;
-    will-change: transform;
-  }
-  .sway:hover{
-    --amp: 6deg; --dur: 1.2s;
-    stroke: #3b82f6 !important; stroke-width: 2.2 !important;
-    cursor: pointer;
-  }
+  /* 无限轻摆（头/表情用） */
+  @keyframes sway { 0%{transform:rotate(calc(-1*var(--amp,3deg)))} 50%{transform:rotate(var(--amp,3deg))} 100%{transform:rotate(calc(-1*var(--amp,3deg)))} }
+  .sway{ transform-box:fill-box; transform-origin:center; animation:sway var(--dur,3s) ease-in-out infinite; will-change:transform; }
+  .sway:hover{ --amp:6deg; --dur:1.2s; stroke:#3b82f6 !important; stroke-width:2.2 !important; cursor:pointer; }
 
-  /* “手部左右晃动两下”的一次性动画类（交互核心） */
-  .hand-wave {
-    --amp: 6deg;                     /* 手部摆动的幅度 */
-    transform-box: fill-box;
-    transform-origin: top center;    /* 以“手腕”上缘为旋转大致参考 */
-    animation: sway .7s ease-in-out 2; /* 使用同一套 sway 关键帧，执行 2 次 */
-  }
+  /* 手部“左右晃动两下”一次性动画 */
+  .hand-wave{ --amp:6deg; transform-box:fill-box; transform-origin:top center; animation:sway .7s ease-in-out 2; }
 
-  /* 顶部工具 */
   .tools{display:flex;gap:8px;margin-top:10px}
-  button{
-    padding:8px 12px;border:1px solid #e5e7eb;border-radius:8px;
-    background:#111;color:#fff;font-size:14px;cursor:pointer
-  }
+  button{padding:8px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#111;color:#fff;font-size:14px;cursor:pointer}
   button:hover{filter:brightness(1.05)}
 </style>
 <body>
   <div class="wrap">
     <h1>Chart 9 (sketch) — interactive</h1>
-    <p class="sub">Fade-in entrance; head / hand / face sway. New: click the hand or the button to wave ×2.</p>
-    <div id="stage" class="enter"><!-- SVG will be injected here --></div>
+    <p class="sub">Fade-in entrance; head/face gentle sway; click the hand to wave ×2 (with robust fallback).</p>
+    <div id="stage" class="enter"></div>
     <div class="tools">
       <button id="replay">Replay fade-in</button>
       <button id="toggle">Pause/Play head & face</button>
@@ -69,80 +43,102 @@
   </div>
 
 <script>
-const SVG_URL = '11.svg';       // ← 若文件名不同，改这里
+const SVG_URL = '11.svg'; // ← 改成你的文件名
 
-(async function init(){
+init();
+
+async function init(){
   const stage = document.getElementById('stage');
   stage.textContent = 'Loading…';
-  const svgText = await fetch(SVG_URL).then(r=>r.text());
-  stage.innerHTML = svgText;
+  try{
+    const txt = await fetch(SVG_URL).then(r=>{ if(!r.ok) throw new Error('fetch failed'); return r.text(); });
+    stage.innerHTML = txt;
+    const svg = stage.querySelector('svg');
+    if(!svg) throw new Error('no svg found');
+    setup(svg);
+  }catch(e){
+    // 本地 file:// 或 fetch 失败 → 用 <object> 退路
+    stage.innerHTML = `<object id="sketchObj" type="image/svg+xml" data="${SVG_URL}" style="width:100%;height:auto;display:block;background:#fff"></object>`;
+    const obj = document.getElementById('sketchObj');
+    obj.addEventListener('load', ()=>{
+      const svg = obj.contentDocument && obj.contentDocument.querySelector('svg');
+      if(svg) setup(svg);
+    });
+  }
+}
 
-  const svg = stage.querySelector('svg');
-  if(!svg) return;
-
-  // 统一默认描边（不覆盖你已有的）
+function setup(svg){
+  // 统一描边观感
   svg.querySelectorAll('path,line,polyline,polygon,rect,circle,ellipse').forEach(el=>{
     if(!el.getAttribute('stroke')) el.setAttribute('stroke', getComputedStyle(document.documentElement).getPropertyValue('--ink').trim());
-    el.setAttribute('stroke-linecap','round');
-    el.setAttribute('stroke-linejoin','round');
+    el.setAttribute('stroke-linecap','round'); el.setAttribute('stroke-linejoin','round');
   });
 
-  // —— 根据你的“分组”定位部位 —— //
-  function pickOne(root, candidates){
-    for(const sel of candidates){
-      const node = root.querySelector(sel);
-      if(node) return node;
-    }
-    return null;
-  }
-  const head = pickOne(svg, ['#head','[data-role=head]','#Head','#group-head']);
-  const face = pickOne(svg, ['#face','[data-role=face]','#Face']);
-  const hand = pickOne(svg, ['#hand','#rightHand','#Hand','#handR','[data-role=hand]']);
+  // 智能匹配：支持中英文 & 常见别名
+  const head = pickGroup(svg, [/^#?head$/i, /\bHead\b/, /头/]);
+  const face = pickGroup(svg, [/^#?face$/i, /\bFace\b/, /表情|脸|面/, /eyes?/i, /mouth/i]);
+  let hand   = pickGroup(svg, [/^#?hand/i, /rightHand/i, /handR/i, /手/]);
 
-  // 头部 / 表情：保持轻微的无限摆动
-  function applySway(node, ampDeg, durSec, origin){
-    if(!node) return;
-    node.classList.add('sway');
-    node.style.setProperty('--amp', ampDeg);
-    node.style.setProperty('--dur', durSec);
-    node.style.transformOrigin = origin;
-    node.style.transformBox = 'fill-box';
-  }
-  applySway(head, '3deg',  '3.2s', 'center');
-  applySway(face, '2.5deg','2.6s', 'center');
+  // 头/表情添加轻摆
+  applySway(head, '3deg', '3.2s', 'center');
+  applySway(face, '2.5deg', '2.6s', 'center');
 
-  // 手部：不做无限摆动；改为“点击/按钮触发左右晃动两下”
-  function triggerHandWave(){
-    if(!hand) return;
-    // 先清除旧的类以便可重复触发
-    hand.classList.remove('hand-wave');
-    // 强制回流，重置动画状态
-    void hand.offsetWidth;
-    // 设置旋转中心，并触发两次摆动
-    hand.style.transformOrigin = 'top center';
-    hand.style.transformBox = 'fill-box';
-    hand.classList.add('hand-wave');
-  }
+  // 手：点击或按钮触发“晃两下”
   if(hand){
-    hand.style.cursor = 'pointer';
-    hand.addEventListener('click', triggerHandWave);
+    enableHandWave(hand);
+  }else{
+    // 找不到“手” → 第一次点击任一 <g>，把它登记为“手”
+    svg.addEventListener('click', oneTimePickAsHand, {once:true});
+    function oneTimePickAsHand(ev){
+      const g = ev.target.closest('g');
+      if(g){ hand = g; enableHandWave(hand); triggerWave(hand); }
+    }
   }
-  // 工具按钮：重播淡入 / 暂停-继续（仅对 head & face）/ 手部摆两下
-  document.getElementById('replay').onclick = () => {
-    stage.classList.remove('enter'); void stage.offsetWidth; stage.classList.add('enter');
-  };
+
+  // 工具按钮
+  document.getElementById('replay').onclick = ()=>{ const stage = document.getElementById('stage'); stage.classList.remove('enter'); void stage.offsetWidth; stage.classList.add('enter'); };
   let paused = false;
-  document.getElementById('toggle').onclick = () => {
+  document.getElementById('toggle').onclick = ()=>{
     paused = !paused;
-    [head, face].forEach(node=>{
-      if(!node) return;
-      node.style.animationPlayState = paused ? 'paused' : 'running';
-    });
+    [head,face].forEach(n=>{ if(n) n.style.animationPlayState = paused?'paused':'running'; });
     document.getElementById('toggle').textContent = paused ? 'Play head & face' : 'Pause head & face';
   };
-  document.getElementById('wave').onclick = triggerHandWave;
-})();
+  document.getElementById('wave').onclick = ()=> hand && triggerWave(hand);
+}
+
+function pickGroup(svg, patterns){
+  // 先找所有 <g>，匹配 id 或 class 或 outerHTML 文本里包含的关键词
+  const groups = Array.from(svg.querySelectorAll('g'));
+  for(const g of groups){
+    const id = (g.id || '').toString();
+    const cls= (g.getAttribute('class') || '').toString();
+    const txt= (g.outerHTML || '').toString();
+    if(patterns.some(re => re.test(id) || re.test(cls) || re.test(txt))) return g;
+  }
+  return null;
+}
+
+function applySway(node, amp, dur, origin){
+  if(!node) return;
+  node.classList.add('sway');
+  node.style.setProperty('--amp', amp);
+  node.style.setProperty('--dur', dur);
+  node.style.transformOrigin = origin;
+  node.style.transformBox = 'fill-box';
+}
+
+function enableHandWave(hand){
+  hand.style.cursor='pointer';
+  hand.addEventListener('click', ()=> triggerWave(hand));
+}
+
+function triggerWave(hand){
+  hand.classList.remove('hand-wave'); // 允许重复触发
+  void hand.offsetWidth;              // 强制回流
+  hand.style.transformOrigin = 'top center';
+  hand.style.transformBox = 'fill-box';
+  hand.classList.add('hand-wave');    // 左右晃两下
+}
 </script>
 </body>
 </html>
-
