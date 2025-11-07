@@ -550,3 +550,209 @@ setTimeout(()=>svg.classed('enter', false), 1000);
 </body>
 </html>
 
+
+<!DOCTYPE html> 
+<html lang="en">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Chart 11 — Probability Densities with Draggable Thresholds (D3)</title>
+
+<style>
+  html,body{margin:0;background:#fff;font-family:system-ui,Segoe UI,Arial}
+  .wrap{max-width:960px;margin:26px auto;padding:0 16px}
+  h1{margin:0 0 8px;font-size:26px}
+  .sub{color:#666;margin:0 0 12px}
+
+  svg{width:100%;height:auto;display:block;background:#fff}
+
+  .grid line{stroke:#e5e7eb}
+  .axis path,.axis line{stroke:#111}
+  .curve{fill:none;stroke-width:3}
+  .curve.y0{stroke:#eab308}   /* amber */
+  .curve.y1{stroke:#0ea5a4}   /* teal  */
+  .legend{font-size:15px}
+  .legend .sw{stroke-width:3}
+  .shade{fill:#9ca3af;fill-opacity:.45}
+  .vline{stroke:#111;stroke-dasharray:6 6;stroke-width:2}
+  .handle{fill:#111}
+  .guide{stroke:#94a3b8;stroke-dasharray:4 6}
+  .tooltip{
+    position:fixed;pointer-events:none;background:#111;color:#fff;
+    font-size:12px;border-radius:10px;padding:8px 10px;line-height:1.25;
+    transform:translate(12px,-12px);opacity:0;transition:opacity .12s;
+    box-shadow:0 6px 18px rgba(0,0,0,.12)
+  }
+</style>
+
+<body>
+  <div class="wrap">
+    <h1>Chart 11 (function)</h1>
+    <p class="sub">Peaks scaled to 0.22 (yellow) and 0.25 (teal). Drag the dashed lines to adjust the ambiguous region.</p>
+    <svg id="chart" viewBox="0 0 900 520" aria-label="pdf chart"></svg>
+  </div>
+  <div id="tip" class="tooltip"></div>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+const svg = d3.select('#chart'),
+      W = 900, H = 520,
+      M = {t:40, r:24, b:48, l:70},
+      w = W - M.l - M.r,
+      h = H - M.t - M.b;
+
+const g = svg.append('g').attr('transform',`translate(${M.l},${M.t})`);
+
+// scales
+const x = d3.scaleLinear().domain([-2, 5]).range([0, w]);
+const y = d3.scaleLinear().domain([0, 0.30]).nice().range([h, 0]); // 顶端 0.30
+
+// ===== 只保留 -2 到 5 的整数刻度 =====
+const xTicks = [-2,-1,0,1,2,3,4,5];
+
+// y 向网格（横线）
+g.append('g').attr('class','grid')
+  .call(d3.axisLeft(y).tickSize(-w).ticks(6))
+  .selectAll('text').remove();
+
+// x 向网格（竖线，与 -2..5 对齐）
+g.append('g').attr('class','grid')
+  .attr('transform',`translate(0,${h})`)
+  .call(d3.axisBottom(x).tickValues(xTicks).tickSize(-h).tickFormat(()=>''))  // 只画线不显示字
+  .selectAll('.tick line').attr('stroke','#e5e7eb');
+
+// x 轴只显示 -2, -1, 0, 1, 2, 3, 4, 5
+g.append('g').attr('class','axis')
+  .attr('transform',`translate(0,${h})`)
+  .call(d3.axisBottom(x).tickValues(xTicks).tickFormat(d3.format('d')));
+
+// y 轴
+g.append('g').attr('class','axis')
+  .call(d3.axisLeft(y).ticks(6));
+
+g.append('text').attr('x',-50).attr('y',-12)
+  .attr('text-anchor','start').style('font-size','16px')
+  .text('Probability Density');
+g.append('text').attr('x',w-6).attr('y',h+36)
+  .attr('text-anchor','end').style('font-size','16px')
+  .text('x');
+
+// two Gaussians
+const mu0 = 0.15,  s0 = 0.75;   // yellow (y=0)
+const mu1 = 2.00,  s1 = 0.65;   // teal   (y=1)
+
+// 目标峰值
+const TARGET0 = 0.22;  // y=0 的峰值
+const TARGET1 = 0.25;  // y=1 的峰值
+
+// 当前理论峰值 & 缩放系数
+const peak0 = 1/(s0*Math.sqrt(2*Math.PI));
+const peak1 = 1/(s1*Math.sqrt(2*Math.PI));
+const k0 = TARGET0/peak0;
+const k1 = TARGET1/peak1;
+
+const N = 800;
+const xs = d3.range(N).map(i => x.invert(i*(w/(N-1))));
+const pdf = (xv,mu,s)=> (1/(s*Math.sqrt(2*Math.PI))) * Math.exp(-0.5*((xv-mu)/s)**2);
+
+// 缩放后的曲线
+const y0 = xs.map(v => k0*pdf(v,mu0,s0));
+const y1 = xs.map(v => k1*pdf(v,mu1,s1));
+
+// 绘制
+const line = d3.line().x(d=>x(d[0])).y(d=>y(d[1])).curve(d3.curveMonotoneX);
+const path0 = g.append('path').attr('class','curve y0').attr('d', line(xs.map((v,i)=>[v, y0[i]])));
+const path1 = g.append('path').attr('class','curve y1').attr('d', line(xs.map((v,i)=>[v, y1[i]])));
+[path0, path1].forEach(p=>{
+  const L = p.node().getTotalLength();
+  p.attr('stroke-dasharray',`${L} ${L}`).attr('stroke-dashoffset',L)
+   .transition().duration(900).ease(d3.easeCubicOut)
+   .attr('stroke-dashoffset',0);
+});
+
+// legend
+const legend = g.append('g').attr('class','legend').attr('transform',`translate(${w-290},16)`);
+[
+  {c:'#eab308', text:'p(x, y = 0) × v(x)'},
+  {c:'#0ea5a4', text:'p(x, y = 1) × v(x)'}
+].forEach((it,i)=>{
+  const L = legend.append('g').attr('transform',`translate(0,${i*22})`);
+  L.append('line').attr('class','sw').attr('x1',0).attr('x2',28).attr('y1',0).attr('y2',0).attr('stroke',it.c);
+  L.append('text').attr('x',36).attr('y',5).text(it.text).style('font-style','italic');
+});
+
+// thresholds & shaded overlap
+let cutL = 0.95, cutR = 1.30;
+const shade = g.append('path').attr('class','shade');
+const vlines = g.append('g');
+const L = vlines.append('line').attr('class','vline').attr('y1',0).attr('y2',h);
+const R = vlines.append('line').attr('class','vline').attr('y1',0).attr('y2',h);
+const hL = vlines.append('circle').attr('class','handle').attr('r',4);
+const hR = vlines.append('circle').attr('class','handle').attr('r',4);
+
+function updateShade(){
+  const pts = [];
+  xs.forEach((vx,i)=>{
+    const m = (vx>=cutL && vx<=cutR) ? Math.min(y0[i], y1[i]) : 0;
+    pts.push([vx, m]);
+  });
+  const area = d3.area()
+     .x(d=>x(d[0])).y0(y(0)).y1(d=>y(d[1])).curve(d3.curveMonotoneX);
+  shade.attr('d', area(pts));
+  L.attr('x1',x(cutL)).attr('x2',x(cutL));
+  R.attr('x1',x(cutR)).attr('x2',x(cutR));
+  hL.attr('cx',x(cutL)).attr('cy',h);
+  hR.attr('cx',x(cutR)).attr('cy',h);
+}
+updateShade();
+
+// drag
+const dragL = d3.drag().on('drag', (ev)=>{
+  cutL = x.invert(Math.max(0, Math.min(x(cutR)-8, ev.x)));
+  updateShade();
+});
+const dragR = d3.drag().on('drag', (ev)=>{
+  cutR = x.invert(Math.min(w, Math.max(x(cutL)+8, ev.x)));
+  updateShade();
+});
+hL.style('cursor','ew-resize').call(dragL);
+hR.style('cursor','ew-resize').call(dragR);
+
+// hover guide + tooltip（显示缩放后的值）
+const guide = g.append('line').attr('class','guide').attr('y1',0).attr('y2',h).style('opacity',0);
+const tip = d3.select('#tip');
+
+g.append('rect').attr('x',0).attr('y',0).attr('width',w).attr('height',h)
+  .attr('fill','transparent')
+  .on('mousemove', function(ev){
+    const [mx] = d3.pointer(ev,this);
+    const xv = x.invert(mx);
+    const yv0 = k0*pdf(xv,mu0,s0), yv1 = k1*pdf(xv,mu1,s1);
+    guide.attr('x1',mx).attr('x2',mx).style('opacity',1);
+    tip.html(
+      `<div><b>x</b> = ${xv.toFixed(2)}</div>
+       <div style="color:#eab308">p(x,y=0) = ${yv0.toFixed(3)}</div>
+       <div style="color:#0ea5a4">p(x,y=1) = ${yv1.toFixed(3)}</div>`
+    ).style('left', (ev.clientX)+'px')
+     .style('top',  (ev.clientY)+'px')
+     .style('opacity',1);
+  })
+  .on('mouseleave', ()=>{
+    guide.style('opacity',0);
+    tip.style('opacity',0);
+  });
+
+// overlap badge
+function shadedIntegral(){
+  let S = 0; const dx = (x.invert(1)-x.invert(0));
+  xs.forEach((vx,i)=>{
+    if(vx>=cutL && vx<=cutR) S += Math.min(y0[i],y1[i]) * dx;
+  });
+  return S;
+}
+const badge = g.append('text').attr('x',8).attr('y',16)
+  .style('font-size','12px').style('fill','#64748b');
+d3.timer(()=>{ badge.text(`Overlap ∫ min(pdf0, pdf1) dx ≈ ${shadedIntegral().toFixed(3)}  (peaks: 0.22 / 0.25)`); }, 300);
+</script>
+</body>
+</html>
+
