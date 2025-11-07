@@ -1,5 +1,219 @@
 <!DOCTYPE html>
 <html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chart 4 — Frequency (replicated with D3)</title>
+<style>
+  html,body{margin:0;background:#fff;font-family:system-ui,Segoe UI,Arial}
+  .wrap{max-width:980px;margin:28px auto;padding:0 16px}
+  h1{margin:0 0 8px;font-size:28px}
+  .sub{color:#666;margin-bottom:14px}
+  svg{width:100%;height:auto;display:block;background:#fff}
+  .axis path,.axis line{stroke:#111;stroke-width:1}
+  .grid .tick line{stroke:#e5e7eb}
+  .series-area{fill-opacity:.55;stroke-width:1.2}
+  .series-area.dim{opacity:.25}
+  .legend{font-size:13px}
+  .legend rect{stroke:#444;stroke-width:.6}
+  .tooltip{
+    position:fixed;pointer-events:none;background:#111;color:#fff;
+    padding:8px 10px;border-radius:10px;font-size:12px;line-height:1.25;
+    transform:translate(-50%,-120%);opacity:0;transition:opacity .12s;
+    box-shadow:0 6px 18px rgba(0,0,0,.12)
+  }
+  .swatch{display:inline-block;width:.7em;height:.7em;border-radius:2px;margin-right:.4em}
+  .guide{stroke:#94a3b8;stroke-dasharray:4 6;stroke-width:1.2}
+</style>
+<body>
+  <div class="wrap">
+    <h1>Chart 4 (frequency)</h1>
+    <div class="sub">Values are approximate. Includes one transition and one interaction.</div>
+    <svg id="chart" viewBox="0 0 920 240" aria-label="frequency area chart"></svg>
+  </div>
+  <div class="tooltip" id="tip"></div>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+const svg = d3.select("#chart"),
+      W = 920, H = 240,
+      M = {t:20, r:18, b:36, l:46},
+      w = W - M.l - M.r,
+      h = H - M.t - M.b;
+
+const g = svg.append("g").attr("transform", `translate(${M.l},${M.t})`);
+
+const years = d3.range(1980, 2024);
+const x = d3.scaleLinear().domain(d3.extent(years)).range([0, w]);
+// 防越界
+const y = d3.scaleLinear().domain([0, 10]).nice().range([h, 0]).clamp(true);
+// 顶部留白
+const Y_CAP = 8.9;
+
+// grid & axes
+g.append("g").attr("class","grid")
+  .call(d3.axisLeft(y).tickSize(-w).ticks(5))
+  .selectAll(".tick text").remove();
+
+g.append("g").attr("class","axis").attr("transform",`translate(0,${h})`)
+  .call(d3.axisBottom(x).tickFormat(d3.format("d")).ticks(10));
+g.append("g").attr("class","axis").call(d3.axisLeft(y).ticks(5));
+g.append("text").attr("x",-M.l+4).attr("y",12).text("Frequency").style("font-size","12px");
+g.append("text").attr("x",w-30).attr("y",h+28).text("Year").style("font-size","12px");
+
+// 生成三角峰 a-peak-c
+function buildSeries(peaks) {
+  const arr = years.map(y => ({year:y, value:0}));
+  for (const [a, peak, c, height] of peaks) {
+    for (let yr=a; yr<=c; yr++) {
+      const up = Math.max(0, Math.min(1, (yr-a)/Math.max(1, peak-a)));
+      const down = Math.max(0, Math.min(1, (c-yr)/Math.max(1, c-peak)));
+      const t = Math.min(up, down);
+      const idx = yr - years[0];
+      arr[idx].value = Math.max(arr[idx].value, +(height*t).toFixed(2));
+    }
+  }
+  return arr;
+}
+
+// —— 数据：补齐 2005–2010 的空档（每个系列都加了中/小峰）——
+const series = [
+  {
+    key: "Set model", color: "#67c79e",
+    data: buildSeries([
+      [1984,1986,1987,1.2],
+      [1993,1995,1996,0.9],
+      [1998,1999,2000,0.8],
+      [2003,2004,2005,1.6],        // 原有 2003–2005
+      [2005,2006,2007,1.0],        // ★ 新增 2005–2007
+      [2007,2008,2009,0.9],        // ★ 新增 2007–2009
+      [2009,2010,2011,0.7],        // 原有 2010 附近
+      [2013,2014,2015,0.9]
+    ])
+  },
+  {
+    key: "Sequence model", color: "#d19a4c",
+    data: buildSeries([
+      [1988,1989,1990,1.0],
+      [1991,1992,1993,0.9],
+      [1994,1996,1997,1.1],
+      [1999,2000,2001,0.9],
+      [2004,2006,2007,2.0],        // 原有 2006 峰
+      [2006,2008,2009,1.7],        // ★ 新增 2006–2009（填 2007–2008）
+      [2009,2010,2011,1.3],        // 原有 2010
+      [2014,2016,2017,1.2],
+      [2018,2019,2020,1.0]
+    ])
+  },
+  {
+    key: "Vector model", color: "#9a8cff",
+    data: buildSeries([
+      [1986,1988,1989,0.8],
+      [1998,1999,2000,0.8],
+      [2002,2004,2006,3.2],        // 原有 2004 高峰
+      [2006,2007,2008,2.0],        // ★ 新增 2006–2008
+      [2008,2009,2010,1.6],        // ★ 新增 2008–2010
+      [2009,2011,2012,1.6],        // 原有 2010 附近
+      [2012,2014,2016,4.0],
+      [2016,2017,2018,3.4]
+    ])
+  },
+  {
+    key: "End-to-end", color: "#e869a7",
+    data: buildSeries([
+      [1994,1996,1997,1.6],
+      [1996,1998,1999,1.2],
+      [2007,2008,2009,1.0],        // ★ 新增 2007–2009（小峰）
+      [2009,2011,2012,2.2],        // 原有 2010 附近
+      [2011,2013,2014,3.1],
+      [2013,2015,2016,4.0],
+      [2017,2019,2020,9.2],        // 2019 峰，2020 回落
+      [2019,2020,2021,3.0]
+    ])
+  }
+];
+
+// 裁到上限，避免曲线过冲
+series.forEach(s => s.data.forEach(p => { p.value = Math.min(Y_CAP, p.value); }));
+
+const area = d3.area()
+  .curve(d3.curveMonotoneX)
+  .x(d => x(d.year))
+  .y0(y(0))
+  .y1(d => y(Math.max(0, Math.min(Y_CAP, d.value))));
+
+// reveal 动画
+const clipId = "reveal-" + Math.random().toString(36).slice(2);
+svg.append("defs").append("clipPath").attr("id", clipId)
+   .append("rect").attr("x",M.l).attr("y",M.t).attr("width",0).attr("height",h);
+
+const serG = g.append("g").attr("clip-path",`url(#${clipId})`);
+
+const paths = serG.selectAll("path.series-area")
+  .data(series, d=>d.key)
+  .join("path")
+  .attr("class","series-area")
+  .attr("fill", d=>d.color)
+  .attr("stroke", d=>d3.color(d.color).darker(1))
+  .attr("d", d => area(d.data));
+
+// 图例交互
+const legend = g.append("g").attr("class","legend").attr("transform","translate(10,8)");
+const items = legend.selectAll("g.item").data(series).join("g")
+  .attr("class","item")
+  .attr("transform",(d,i)=>`translate(0,${i*18})`)
+  .style("cursor","pointer")
+  .on("click", function(e,d){
+    d.hidden = !d.hidden;
+    d3.select(this).select("rect").attr("fill-opacity", d.hidden? 0.15 : 1);
+    paths.filter(p=>p.key===d.key).attr("display", d.hidden? "none": null);
+  })
+  .on("mouseenter",(e,d)=>paths.classed("dim", p=>p.key!==d.key))
+  .on("mouseleave",()=>paths.classed("dim", false));
+
+items.append("rect").attr("width",12).attr("height",12).attr("rx",2).attr("ry",2)
+  .attr("fill",d=>d.color);
+items.append("text").attr("x",16).attr("y",10).text(d=>d.key);
+
+// 悬停提示 + 竖向指示线
+const tip = d3.select("#tip");
+const guide = g.append("line").attr("class","guide").attr("y1",0).attr("y2",h).style("opacity",0);
+
+g.append("rect")
+  .attr("x",0).attr("y",0).attr("width",w).attr("height",h)
+  .attr("fill","transparent")
+  .on("mousemove", function(event){
+    const [mx] = d3.pointer(event, this);
+    const yr = Math.round(x.invert(mx));
+    guide.attr("x1",x(yr)).attr("x2",x(yr)).style("opacity",1);
+
+    const rows = series
+      .filter(s=>!s.hidden)
+      .map(s=>{
+        const idx = Math.min(Math.max(yr - years[0],0), years.length-1);
+        return {key:s.key, color:s.color, v:s.data[idx].value};
+      });
+
+    const html = `<div style="margin-bottom:4px">${yr}</div>` +
+      rows.map(r=>`<div><span class="swatch" style="background:${r.color}"></span>${r.key}: ${r.v.toFixed(1)}</div>`).join("");
+    tip.html(html)
+      .style("left", (event.clientX)+"px")
+      .style("top",(event.clientY)+"px")
+      .style("opacity",1);
+  })
+  .on("mouseleave", ()=>{
+    guide.style("opacity",0);
+    tip.style("opacity",0);
+  });
+
+// 左→右揭示
+svg.select(`#${clipId} rect`).transition().duration(1200).attr("width", w);
+</script>
+</body>
+</html>
+
+
+<!DOCTYPE html>
+<html lang="en">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Sketch — head/hand/face sway + fade-in</title>
@@ -142,3 +356,197 @@ function triggerWave(hand){
 </script>
 </body>
 </html>
+
+
+ <!DOCTYPE html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chart 8 — Cross Validation Accuracy (%)</title>
+<style>
+  :root{
+    --ink:#111;
+    --gold:#f1cd74;       /* 实心柱填充 */
+    --goldStroke:#caa44a; /* 实心柱描边 & 虚线颜色 */
+    --bg:#ffffff;
+    --grid:#e5e7eb;
+  }
+  html,body{ margin:0; background:var(--bg); font-family:system-ui, -apple-system, Segoe UI, Arial; color:#111;}
+  .wrap{ max-width:980px; margin:28px auto; padding:0 16px;}
+  h1{ font-size:28px; margin:0 0 6px;}
+  .sub{ color:#666; margin:0 0 14px;}
+
+  svg{ width:100%; height:auto; display:block; background:#fff; }
+  .axis path, .axis line{ stroke:var(--ink); stroke-width:1; shape-rendering:crispEdges; }
+  .grid .tick line{ stroke:var(--grid); }
+  .frame{ fill:none; stroke:#444; stroke-width:3; }
+  .bar{ fill:var(--gold); stroke:var(--goldStroke); stroke-width:1.5; }
+  .ghost{ fill:none; stroke:var(--goldStroke); stroke-dasharray:6 6; stroke-width:2; }
+  .value{ font: 600 14px/1 Georgia, 'Times New Roman', serif; fill:#2a2a2a; pointer-events:none; }
+  .x .tick text{ font: 600 16px Georgia, 'Times New Roman', serif; }
+  .title{ font: 700 26px Georgia, 'Times New Roman', serif; }
+
+  .legend{ font-size:13px; }
+  .legend rect{ rx:3; ry:3; }
+  .legend .sw{ width:12px; height:12px; }
+
+  .toggle{ appearance: none; width:14px; height:14px; border:1px solid #999; border-radius:3px; vertical-align:-2px; margin-right:6px; }
+  .toggle:checked{ background:#111; box-shadow: inset 0 0 0 2px #fff; }
+  .ctrl{ display:flex; align-items:center; gap:12px; margin-top:10px; color:#333; }
+
+  /* tooltip */
+  .tip{
+    position:fixed; pointer-events:none; opacity:0; transition:opacity .12s ease;
+    background:#111; color:#fff; padding:8px 10px; border-radius:8px; font-size:12px; line-height:1.2;
+    transform:translate(-50%,-120%); box-shadow:0 6px 18px rgba(0,0,0,.12);
+  }
+
+  /* 进入动画 */
+  .enter .bar{ transform: translateY(6px); opacity:0; }
+  .enter .ghost{ opacity:0; }
+</style>
+<body>
+  <div class="wrap">
+    <h1>Chart 8 (simple bars)</h1>
+    <p class="sub">Replicated with D3.js — includes one transition and one interaction.</p>
+
+    <svg id="chart" viewBox="0 0 920 420" aria-label="Cross Validation Accuracy chart"></svg>
+
+    <div class="ctrl">
+      <label>
+        <input id="toggleGhost" class="toggle" type="checkbox" checked>
+        Show Baseline (dashed)
+      </label>
+      <span style="color:#666">Values are approximate.</span>
+    </div>
+  </div>
+
+  <div class="tip" id="tip"></div>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+const svg = d3.select('#chart');
+const W = 920, H = 420;
+const M = {t:56, r:24, b:64, l:64};
+const w = W - M.l - M.r;
+const h = H - M.t - M.b;
+
+const g = svg.append('g').attr('transform', `translate(${M.l},${M.t})`);
+
+// 数据
+const cats = ['BERT','RoBERTa','BART'];
+const ours = [74.4, 81.9, 73.1];
+const base = [64.8, 65.5, 63.5];
+
+const data = cats.map((c,i)=>({
+  cat:c, ours:ours[i], base:base[i]
+}));
+
+// 比例尺
+const x = d3.scaleBand().domain(cats).range([0,w]).padding(0.28);
+const y = d3.scaleLinear().domain([0,100]).nice().range([h,0]);
+
+// 坐标 & 网格
+g.append('g').attr('class','grid')
+  .call(d3.axisLeft(y).tickSize(-w).ticks(5))
+  .selectAll('.tick text').remove();
+
+g.append('g').attr('class','axis x').attr('transform',`translate(0,${h})`)
+  .call(d3.axisBottom(x));
+
+g.append('g').attr('class','axis y')
+  .call(d3.axisLeft(y).ticks(5));
+
+// 框线（模仿原图的内框）
+g.append('rect').attr('class','frame').attr('x',0).attr('y',0).attr('width',w).attr('height',h);
+
+// 标题
+g.append('text')
+  .attr('class','title')
+  .attr('x', w/2).attr('y', -18)
+  .attr('text-anchor','middle')
+  .text('Cross Validation Accuracy (%)');
+
+// 一组容器
+const groups = g.selectAll('.g')
+  .data(data)
+  .enter().append('g')
+  .attr('class','g')
+  .attr('transform', d => `translate(${x(d.cat)},0)`)
+  .on('mouseenter', function(e,d){
+    d3.select(this).selectAll('.bar,.ghost').attr('opacity',1);
+    tip.style('opacity',1)
+       .html(`<div style="margin-bottom:4px"><b>${d.cat}</b></div>
+              <div>Ours: ${d.ours}%</div>
+              <div>Baseline: ${d.base}%</div>`);
+  })
+  .on('mousemove', function(e){
+    tip.style('left', (e.clientX)+'px').style('top', (e.clientY)+'px');
+  })
+  .on('mouseleave', function(){
+    tip.style('opacity',0);
+  });
+
+const barW   = x.bandwidth()*0.36;
+const ghostW = x.bandwidth()*0.30;
+
+const tip = d3.select('#tip');
+
+// 实心柱（我们的结果）
+groups.append('rect')
+  .attr('class','bar')
+  .attr('x', x.bandwidth()*0.12)
+  .attr('width', barW)
+  .attr('y', y(0))
+  .attr('height', 0)
+  .transition().duration(900).ease(d3.easeCubicOut)
+  .attr('y', d => y(d.ours))
+  .attr('height', d => y(0) - y(d.ours));
+
+// 虚线“Baseline”空心柱（可开关）
+const ghosts = groups.append('rect')
+  .attr('class','ghost')
+  .attr('x', x.bandwidth()*(0.56))
+  .attr('width', ghostW)
+  .attr('y', y(0))
+  .attr('height', 0)
+  .attr('rx',4).attr('ry',4);
+
+ghosts.transition().delay(150).duration(900).ease(d3.easeCubicOut)
+  .attr('y', d => y(d.base))
+  .attr('height', d => y(0) - y(d.base));
+
+// 数值标签
+groups.append('text')
+  .attr('class','value')
+  .attr('x', x.bandwidth()*0.12 + barW/2)
+  .attr('y', d=> y(d.ours) - 8)
+  .attr('text-anchor','middle')
+  .style('opacity',0)
+  .text(d=>d.ours.toFixed(1))
+  .transition().delay(700).duration(400).style('opacity',1);
+
+groups.append('text')
+  .attr('class','value')
+  .attr('x', x.bandwidth()*0.56 + ghostW/2)
+  .attr('y', d=> y(d.base) - 8)
+  .attr('text-anchor','middle')
+  .style('opacity',0.85)
+  .style('fill','#3b3b3b')
+  .text(d=>d.base.toFixed(1))
+  .transition().delay(750).duration(400).style('opacity',1);
+
+// 交互：切换显示 Baseline
+const toggle = document.getElementById('toggleGhost');
+toggle.addEventListener('change', e => {
+  const on = e.target.checked;
+  g.selectAll('.ghost').transition().duration(250).style('opacity', on ? 1 : 0);
+});
+
+// 初始“进场”小效果（给柱子一点弹性）
+svg.classed('enter', true);
+setTimeout(()=>svg.classed('enter', false), 1000);
+</script>
+</body>
+</html>
+
